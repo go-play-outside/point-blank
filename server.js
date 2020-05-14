@@ -2,6 +2,11 @@
 const express = require('express')
 const app = express();
 
+//Allows server to read more complex bodies in post requests (needed to read objects)
+var bodyParser = require('body-parser')
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended: true }));
+
 //Allows socket.io
 const http = require("http");
 const socketIO = require("socket.io");
@@ -59,44 +64,15 @@ io.on('connection', (socket) => {
     socket.emit('game started');
     createNewRound(socket);
   });
-  //When someone submits their prompts, adds to the appropriate prompts in matchups
-  socket.on('user submitted', function(submissionInfo){
-     
-      playersSubmitted.push(submissionInfo.username);
-
-      if(matchups[submissionInfo.prompt1index].player1 == submissionInfo.username){
-        matchups[submissionInfo.prompt1index].player1answer = submissionInfo.prompt1answer;
-      }else if(matchups[submissionInfo.prompt1index].player2 == submissionInfo.username){
-        matchups[submissionInfo.prompt1index].player2answer = submissionInfo.prompt1answer;
-      }else{
-        console.log('error matching username to players: prompt 1');
-      }
-
-      if(matchups[submissionInfo.prompt2index].player1 == submissionInfo.username){
-        matchups[submissionInfo.prompt2index].player1answer = submissionInfo.prompt2answer;
-      }else if(matchups[submissionInfo.prompt2index].player2 == submissionInfo.username){
-        matchups[submissionInfo.prompt2index].player2answer = submissionInfo.prompt2answer;
-      }else{
-        console.log('error matching username to players: prompt 2');
-      }
-
-    //If everyone has now submitted, start voting  
-    if (playersSubmitted.length == players.length){
-      clearInterval(timer);
-      socket.emit('voting started');
-      matchupsSent = [];
-      newDuel();
-    }
-  });
-  //TODO next: socket.on vote submitted; handle vote, if all votes submitted check if matchupsSent.length < matchups.length, if true newDuel again otherwise move to next round
+  //TODO next: socket.on vote submitted; handle vote, if all votes submitted check if matchupsSent.length < matchups.length, if true createNewDuel again otherwise move to next round
 });
 
 //New timer with length in seconds that runs broadcasts the time left each second and runs funcWhenDone when time reaches 0
 function newTimer(socket, length, funcWhenDone){
   timerStartTime = new Date();
   timer = setInterval(() => {
+    timeLeft = length - Math.floor((new Date() - timerStartTime) / 1000); //Expresses the time between now and the start time in seconds, rounding down since the function doesn't run on perfect 1000ms intervals
     if (timeLeft > 0){
-      timeLeft = length - Math.floor((new Date() - timerStartTime) / 1000); //Expresses the time between now and the start time in seconds, rounding down since the function doesn't run on perfect 1000ms intervals
       socket.emit('timer', timeLeft);
     }else{
       clearInterval(timer);
@@ -143,7 +119,7 @@ function createNewRound(socket){
   };
   //Broadcasts matchup info for users to submit their prompts, starts a 90 second timer for submission
   socket.emit('round started', matchupInfo);
-  newTimer(socket, 90, createNewDuel());
+  newTimer(socket, 90, createNewDuel);
 }
 
 //Creates and broadcasts a new duel for users to vote on
@@ -160,6 +136,37 @@ app.post('/createaccount', function(req,res,next){
       password: req.body.password
     })
     user.save()
+})
+
+//When someone submits their prompts, adds to the appropriate prompts in matchups
+app.post('/submitprompts', function(req,res,next){
+
+      playersSubmitted = ['gamer, cool, other']; //Delete this in the final build, this just adds the dummy players
+      playersSubmitted.push(req.body.username);
+
+      if(matchups[req.body.prompt1index].player1 == req.body.username){
+        matchups[req.body.prompt1index].player1answer = req.body.prompt1answer;
+      }else if(matchups[req.body.prompt1index].player2 == req.body.username){
+        matchups[req.body.prompt1index].player2answer = req.body.prompt1answer;
+      }else{
+        console.log('error matching username to players: prompt 1');
+      }
+
+      if(matchups[req.body.prompt2index].player1 == req.body.username){
+        matchups[req.body.prompt2index].player1answer = req.body.prompt2answer;
+      }else if(matchups[req.body.prompt2index].player2 == req.body.username){
+        matchups[req.body.prompt2index].player2answer = req.body.prompt2answer;
+      }else{
+        console.log('error matching username to players: prompt 2');
+      }
+
+    //If everyone has now submitted, start voting  
+    if (playersSubmitted.length == players.length){
+      clearInterval(timer);
+      io.emit('voting started');
+      matchupsSent = [];
+      createNewDuel();
+    }
 })
 
 module.exports = app;
