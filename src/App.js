@@ -146,20 +146,25 @@ class App extends React.Component{
       let answer = this.state.inputtedPromptAnswer;
       //If both prompts have now been submitted, broadcast submission to the server
       if(this.state.prompt1answer){
-        this.state.socket.emit('user submitted', {
-          username: this.state.username,
-          prompt1: this.state.prompt1,
-          prompt2: this.state.prompt2,
-          prompt1answer: this.state.prompt1answer,
+        fetch('http://localhost:8080/submitprompts', {
+          method: 'post',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+             username: this.state.username,
+             prompt1: this.state.prompt1,
+             prompt2: this.state.prompt2,
+             prompt1answer: this.state.prompt1answer,
+             prompt2answer: answer,
+             prompt1index: this.state.prompt1index,
+             prompt2index: this.state.prompt2index
+          }),
+        })
+        this.setState({
           prompt2answer: answer,
-          prompt1index: this.state.prompt1index,
-          prompt2index: this.state.prompt2index
+          inputtedPromptAnswer: ""
         });
       }
-      this.setState({
-        prompt2answer: answer,
-        inputtedPromptAnswer: ""
-      });
+      
     }
   }
 
@@ -325,7 +330,6 @@ class App extends React.Component{
       case 'voting':
       /*--------------------------------------------------------------------------VOTING PAGE--------------------------------------------------------------------------*/
         return(
-        {/*Placeholder, need to work on this next*/}
           <h1>vote</h1>
         );
       default:
