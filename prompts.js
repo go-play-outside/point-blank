@@ -13,7 +13,7 @@ module.exports = {
 	getRandom: function(promptsUsed){
 		let i = Math.floor(Math.random() * prompts.length);
 		let loopBreaker = 0;
-		while (promptsUsed.includes(prompts[i]) && loopBreaker < 10){
+		while (promptsUsed.includes(prompts[i]) && loopBreaker < 200){
 			i = Math.floor(Math.random() * prompts.length);
 			loopBreaker++;
 		}
