@@ -10,7 +10,7 @@ class App extends React.Component{
     this.state = {
       socket: socketIOClient('http://localhost:8080'),
       timeLeft: null,
-      username: "test user",
+      username: "",
       password: "",
       gameGathering: false,
       gameRunning: false,
@@ -22,8 +22,15 @@ class App extends React.Component{
       prompt2answer: null,
       prompt1index: null,
       prompt2index: null,
+      currentMatchup: null,
+      canVote: false,
+      hasVoted: false,
+      votes: ['',''],
+      leaderboardArray: null,
+      leaderboardPointsArray: [],
       currentPage: 'login'
     };
+    this.getStateInfo = this.getStateInfo.bind(this);
     this.Login_handleUsernameChange = this.Login_handleUsernameChange.bind(this);
     this.Login_handlePasswordChange = this.Login_handlePasswordChange.bind(this);
     this.Login_handleLogin = this.Login_handleLogin.bind(this);
@@ -35,6 +42,73 @@ class App extends React.Component{
     this.Prompts_handlePromptAnswerChange = this.Prompts_handlePromptAnswerChange.bind(this);
     this.Prompts_handleSubmission1 = this.Prompts_handleSubmission1.bind(this);
     this.Prompts_handleSubmission2 = this.Prompts_handleSubmission2.bind(this);
+    this.Voting_handleVote = this.Voting_handleVote.bind(this);
+  }
+
+  getStateInfo(){
+    fetch('http://localhost:8000/stateinfo', {
+      method: 'get',
+      headers: {'Content-Type': 'application/json'},
+    })
+    .then(res => res.text())
+    .then(res => JSON.parse(res))
+    .then(res => {
+      let prompt1 = null;
+      let prompt2 = null;
+      let prompt1answer = null;
+      let prompt1index = null;
+      let prompt2index = null;
+      if(res.matchupIndex.length > 0 && res.matchups.length > 0){
+        let indexPosition = res.matchupIndex.indexOf(this.state.username);
+        if (indexPosition === 0){
+          prompt1 = res.matchups[0].prompt;
+          prompt2 = res.matchups[res.matchups.length - 1].prompt;
+          prompt1index = 0;
+          prompt2index = res.matchups.length - 1;
+        }else{
+          prompt1 = res.matchups[indexPosition - 1].prompt;
+          prompt2 = res.matchups[indexPosition].prompt;
+          prompt1index = indexPosition - 1;
+          prompt2index = indexPosition;
+        }
+        for (var i in res.storedPrompt1Answers) {
+          if(res.storedPrompt1Answers[i].username === this.state.username){
+            prompt1answer = res.storedPrompt1Answers[i].answer;
+          }
+        }
+      }
+      this.setState({
+        gameGathering: res.gameGathering,
+        gameRunning: res.gameRunning,
+        prompt1: prompt1,
+        prompt2: prompt2,
+        prompt1answer: prompt1answer,
+        prompt1index: prompt1index,
+        prompt2index: prompt2index,
+        currentMatchup: res.currentMatchup,
+        canVote: res.canVote,
+        hasVoted: res.playersVoted.includes(this.state.username),
+        players: res.players,
+        currentPage: res.currentPage
+      });
+    })
+    .catch(err => err)
+  }
+
+  getLeaderboard(){
+    fetch('http://localhost:8000/leaderboard', {
+      method: 'get',
+      headers: {'Content-Type': 'application/json'},
+    })
+    .then(res => res.text())
+    .then(res => JSON.parse(res))
+    .then(res => {
+      this.setState({
+        leaderboardArray: res.leaderboard
+      });
+    })
+    .catch(err => err)
+
   }
 
   Login_handleUsernameChange(event){
@@ -51,17 +125,8 @@ class App extends React.Component{
 
   Login_handleLogin(event){
     event.preventDefault();
-    if (this.state.username && this.state.password){ //TODO: check with server -> database for valid account instead of automatically logging in
-      this.setState({
-        currentPage: 'lobby'
-      });
-    }
-  }
-
-  CreateAccount_handleCreateAccount(event){
-    event.preventDefault();
     if (this.state.username && this.state.password){
-      fetch('http://localhost:8080/createaccount', {
+      fetch('http://localhost:8000/login', {
         method: 'post',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -69,11 +134,48 @@ class App extends React.Component{
          password: this.state.password,
         }),
       })
-      .then(
-        this.setState({
-          currentPage: 'login'
-        }) 
-      )
+      .then(res => res.text())
+      .then(res => JSON.parse(res))
+      .then(res => {
+        if(res.status === 'successful'){
+          this.getStateInfo(); 
+        }else if (res.status === 'username not found'){
+          alert('User does not exist.')
+        }else if (res.status === 'incorrect password'){
+          alert('Incorrect password.')
+        }else{
+          alert('Unexpected error logging in.')
+        }
+      })
+      .catch(err => err)
+    }
+  }
+
+  CreateAccount_handleCreateAccount(event){
+    event.preventDefault();
+    if (this.state.username && this.state.password){
+      fetch('http://localhost:8000/createaccount', {
+        method: 'post',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+         username: this.state.username, 
+         password: this.state.password,
+        }),
+      })
+      .then(res => res.text())
+      .then(res => JSON.parse(res))
+      .then(res => {
+        if(res.status === 'successful'){
+          alert('Account created!')
+          this.setState({
+            currentPage: 'login'
+          }) 
+        }else if (res.status === 'username already exists'){
+          alert('Username already exists.')
+        }else{
+          alert('Unexpected error creating account.')
+        }
+      })
       .catch(err => err)
     }
   }
@@ -84,7 +186,21 @@ class App extends React.Component{
   }
 
   Lobby_joinGame(){
-    this.state.socket.emit('user joining', this.state.username);
+    fetch('http://localhost:8000/joingame', {
+      method: 'post',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+       username: this.state.username, 
+      }),
+    })
+    .then(res => res.text())
+    .then(res => JSON.parse(res))
+    .then(res => {
+      if(res.status === 'duplicate'){
+        alert('Player with username ' + this.state.username + ' is already in the game.')
+      }
+    })
+    .catch(err => err)
   }
 
   Lobby_startGame(){
@@ -137,6 +253,14 @@ class App extends React.Component{
         prompt1answer: answer,
         inputtedPromptAnswer: ""
       });
+      fetch('http://localhost:8000/storeprompt1answer', {
+        method: 'post',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+         username: this.state.username, 
+         answer: answer
+        }),
+      })
     }
   }
 
@@ -146,7 +270,7 @@ class App extends React.Component{
       let answer = this.state.inputtedPromptAnswer;
       //If both prompts have now been submitted, broadcast submission to the server
       if(this.state.prompt1answer){
-        fetch('http://localhost:8080/submitprompts', {
+        fetch('http://localhost:8000/submitprompts', {
           method: 'post',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
@@ -165,6 +289,22 @@ class App extends React.Component{
         });
       }
       
+    }
+  }
+
+  Voting_handleVote(num){
+    if(this.state.canVote && !this.state.hasVoted){
+      fetch('http://localhost:8000/vote', {
+        method: 'post',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+           username: this.state.username,
+           player: num
+        }),
+      })
+      this.setState({
+        hasVoted: true
+      });
     }
   }
 
@@ -315,7 +455,6 @@ class App extends React.Component{
               </div>
             : null}
             {/*If both prompts have been submitted, show user the prompts they submitted*/}
-            {/*TODO: allow users to change prompts before time runs out*/}
             {(this.state.prompt1answer && this.state.prompt2answer) ? 
               <div>
                 <h3>You have submitted all your prompts. Sit back and relax!</h3>
@@ -327,13 +466,107 @@ class App extends React.Component{
             : null}
           </div>
         );
+      case 'timeup':
+        /*-----------------------------------------------------------------SUBMISSION TIME UP PAGE------------------------------------------------------------------------*/
+        return(
+          <div>
+            <h2>Time's up!</h2>
+            <h4>Get ready to vote...</h4>
+          </div>
+        )
       case 'voting':
       /*--------------------------------------------------------------------------VOTING PAGE--------------------------------------------------------------------------*/
+        let voteMessage = 'Thank you for your vote!';
+        let ownPrompt = false;
+        if(this.state.currentMatchup){
+          ownPrompt = this.state.currentMatchup.player1 === this.state.username || this.state.currentMatchup.player2 === this.state.username;
+          if (ownPrompt){
+            voteMessage = 'This is one of your prompts. Good luck!';
+          }
+        }
         return(
-          <h1>vote</h1>
+          <div>
+            {this.state.timeLeft && !this.state.showVotes ? 
+              <h2>Time left: {this.state.timeLeft}</h2>
+            : null}
+            {this.state.currentMatchup && this.state.canVote ? 
+              <div>
+                <h3>{this.state.currentMatchup.prompt}</h3>
+                {(this.state.hasVoted === false && this.state.currentMatchup.player1 !== this.state.username && this.state.currentMatchup.player2 !== this.state.username) ? 
+                  <div>
+                    <h4>Answer 1: {this.state.currentMatchup.player1answer}</h4>
+                    <button onClick={() => this.Voting_handleVote(1)}>Vote for Answer #1</button>
+                    <h4>Answer 2: {this.state.currentMatchup.player2answer}</h4>
+                    <button onClick={() => this.Voting_handleVote(2)}>Vote for Answer #2</button>
+                  </div>
+                : <div>
+                  <h4>Answer 1: {this.state.currentMatchup.player1answer}</h4>
+                  <h4>Answer 2: {this.state.currentMatchup.player2answer}</h4>
+                  <p>{voteMessage}</p>
+                </div>}
+              </div>
+            : null}
+            {this.state.showVotes ? 
+              <div>
+                <h2>Final votes:</h2>
+                <h4>{this.state.votes[0]}</h4>
+                <h4>{this.state.votes[1]}</h4>
+              </div>
+            : null}
+          </div>
         );
+      case 'end':
+      /*--------------------------------------------------------------------------GAME END PAGE--------------------------------------------------------------------------*/
+        var endPointsList = [];
+        for (var j in this.state.leaderboardPointsArray){
+          endPointsList.push(<li key={j}>{this.state.leaderboardPointsArray[j][0] + ': ' + this.state.leaderboardPointsArray[j][1]}</li>)
+        }
+        var playersListEnd = [];
+        for (var k in this.state.players){
+          playersListEnd.push(<li key={k}>{this.state.players[k]}</li>);
+        }
+        return(
+          <div>
+            <h2>Game over!</h2>
+            <h3>Final score:</h3>
+            <ol>{endPointsList}</ol>
+            <br></br>
+            {/*If there is no game, show the button to create one*/}
+            {(!this.state.gameGathering && !this.state.gameRunning) ? 
+              <div>
+                <button onClick={this.Lobby_createGame}>New Game</button>
+              </div>
+            : null}
+            {/*If the game is gathering players, show the list of players that have joined, the button to join, the button to start (if you have joined)*/}
+            {(this.state.gameGathering && !this.state.gameRunning) ?
+              <div>
+                <h3>The game is gathering players.</h3>
+                <ul>{playersListEnd}</ul>
+                {/*If the player has joined, show the button to start, otherwise show the button to join*/}
+                {this.state.players.includes(this.state.username) ? 
+                  <button onClick={this.Lobby_startGame}>Start Game</button>
+                : <button onClick={this.Lobby_joinGame}>Join Game</button>}
+                {/*Tells the player whether they're in the game or not*/}
+                {this.state.players.includes(this.state.username) ? 
+                  <p>You're in! Wait for more players to join, or click Start Game when everybody's ready.</p>
+                : <p>You're not in the game yet.</p>}
+              </div>
+            : null}
+            {(!this.state.gameGathering && this.state.gameRunning) ?
+              <div>
+                <h3>The game has started!</h3> {/*Should only show this for a split second while the matchups are being generated by the server*/}
+              </div>  
+            : null}
+          </div>
+        )
+      case 'leaderboard':
+      /*--------------------------------------------------------------------------LEADERBOARD PAGE--------------------------------------------------------------------------*/
+      var leaderboardRows = [];
+      for (var l in this.state.leaderboardArray){
+
+      }
       default:
-      /*--------------------------------------------------------------------------NO MATCH PAGE--------------------------------------------------------------------------*/
+      /*--------------------------------------------------------------------------404 PAGE--------------------------------------------------------------------------*/
         return(
           <div>
             <h3>Page not found.</h3>
@@ -345,14 +578,34 @@ class App extends React.Component{
 
   //When component mounts, start listening for any socket info
   componentDidMount() {
-    //TODO: need to add some sort of request to the server to get all relevant socket info if someone reloads
     this.state.socket.on('game created', () => this.setState({gameGathering: true}));
     this.state.socket.on('user joined', (players) => this.setState({players: players}));
-    this.state.socket.on('duplicate username', (username) => {if(this.state.username === username){alert('Game cannot contain 2 players with the same username. If you are already in the list of players, you may ignore this error.')}});
     this.state.socket.on('game started', () => this.setState({gameGathering: false, gameRunning: true}));
     this.state.socket.on('round started', (matchupInfo) => this.Prompts_roundStart(matchupInfo));
+    this.state.socket.on('get ready to vote', () => this.setState({currentPage: 'timeup'}))
     this.state.socket.on('voting started', () => this.setState({currentPage: 'voting'}));
+    this.state.socket.on('new duel', (matchup) => this.setState({currentMatchup: matchup, canVote: true, hasVoted: false, showVotes: false, votes: [0,0]}));
+    this.state.socket.on('show votes', (votes) => this.setState({votes: votes, canVote: false, showVotes: true}))
     this.state.socket.on('timer', (timeLeft) => this.setState({timeLeft: timeLeft}));
+    this.state.socket.on('round complete', (info) => this.setState({
+      timeLeft: null,
+      gameGathering: false,
+      gameRunning: false,
+      players: [],
+      prompt1: null,
+      prompt2: null,
+      inputtedPromptAnswer: "",
+      prompt1answer: null,
+      prompt2answer: null,
+      prompt1index: null,
+      prompt2index: null,
+      currentMatchup: null,
+      canVote: false,
+      hasVoted: false,
+      votes: ['',''],
+      leaderboardPointsArray: info.pointsArray,
+      currentPage: 'end'
+    }));
   }
 
 }
