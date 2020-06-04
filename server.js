@@ -49,33 +49,8 @@ var currentMatchup; //int
 var timer; //object
 var timerStartTime; //date
 
-io.on('connection', (socket) => {
-  //When someone creates the game, reset variables and broadcast the game creation to everyone
-  socket.on('game creating', () => {
-    players = ['gamer', 'cool', 'other']; //TODO: placeholder for multiple users, change this eventually to []
-    playerPoints = [];
-    promptsUsed = [];
-    playersSubmitted = [];
-    voteIndex = [];
-    storedPrompt1Answers = [];
-    gameGathering = true;
-    socket.emit('game created');
-  });
-  //When someone starts the game, broadcast the game start to everyone and create the matchups
-  socket.on('game starting', () => {
-    for (var i in players) {
-      playerPoints.push(0); //Sets the length of playerPoints = length of players
-      addLifetimeGames(players[i]); //Adds 1 lifetime game to all players
-    }
-    gameGathering = false;
-    gameRunning = true;
-    socket.emit('game started');
-    createNewRound(socket);
-  });
-});
-
 //Randomizes matchups and broadcasts those matchups to begin the round
-function createNewRound(socket){
+function createNewRound(){
   matchups = [];
   //Makes an array of all players in a random order to then match them up against each other
   matchupIndex = [];
@@ -117,7 +92,7 @@ function createNewRound(socket){
   };
   //Broadcasts matchup info for users to submit their prompts, starts a 90 second timer for submission
   currentClientPage = 'submitprompts';
-  socket.emit('round started', matchupInfo);
+  io.emit('round started', matchupInfo);
   newTimer(90, handleSubmitComplete);
 }
 
@@ -145,6 +120,7 @@ function handleSubmitComplete(){
 
 //Creates and broadcasts a new duel for users to vote on
 function createNewDuel(){
+  playersVoted = [];
   currentMatchup++;
   clientCanVote = true;
   io.emit('new duel', matchups[currentMatchup]);
@@ -184,6 +160,7 @@ function showVoteResults(){
 
 //Runs when all prompts have been voted on
 function endRound(){
+  clearInterval(timer);
   //Creates orderedPointsArray, which is playerPoints (with corresponding player name) in descending order
   let orderedPointsArray = playerPoints;
   for(var i in playerPoints){
@@ -309,6 +286,19 @@ app.post('/createaccount', function(req,res,next){
     }
 })
 
+//When someone creates the game, reset variables and broadcast the game creation to everyone
+app.post('/creategame', function(req,res,next){
+  players = [];
+  playerPoints = [];
+  promptsUsed = [];
+  playersSubmitted = [];
+  voteIndex = [];
+  storedPrompt1Answers = [];
+  gameGathering = true;
+  io.emit('game created');
+  res.send('done');
+})
+
 //When a user joins the game, add them unless they're already in, and broadcast the new player to everyone
 app.post('/joingame', function(req,res,next){
   if(!players.includes(req.body.username)){
@@ -320,12 +310,24 @@ app.post('/joingame', function(req,res,next){
   }
 })
 
+//When someone starts the game, broadcast the game start to everyone and create the matchups
+app.post('/startgame', function(req,res,next){
+  for (var i in players) {
+    playerPoints.push(0); //Sets the length of playerPoints = length of players
+    addLifetimeGames(players[i]); //Adds 1 lifetime game to all players
+  }
+  gameGathering = false;
+  gameRunning = true;
+  io.emit('game started');
+  res.send('done');
+  createNewRound();
+})
+
 //When someone submits their prompts, adds to the appropriate prompts in matchups
 app.post('/submitprompts', function(req,res,next){
       
       if(!playersSubmitted.includes(req.body.username)){
         
-        playersSubmitted = ['gamer', 'cool', 'other']; //TODO: Delete this in the final build, this just adds the dummy players
         playersSubmitted.push(req.body.username);
 
         if(matchups[req.body.prompt1index].player1 == req.body.username){
@@ -353,7 +355,6 @@ app.post('/submitprompts', function(req,res,next){
 
 //When someone votes, records the vote and calls showVoteResults if everyone has voted
 app.post('/vote', function(req,res,next){
-  playersVoted = ['gamer', 'cool', 'other']; //TODO: Change this to [], this just adds the dummy players
   if(!playersVoted.includes(req.body.username)){
     playersVoted.push(req.body.username);
     if (req.body.player == 1){
@@ -364,12 +365,12 @@ app.post('/vote', function(req,res,next){
     }
     if (playersVoted.length >= players.length - 2){
       clearInterval(timer);
-      playersVoted = ['gamer', 'cool', 'other']; //TODO: Change this to [], this just adds the dummy players
       showVoteResults();
     }
   }
 })
 
+//Stores submitted prompt1 answers (to be sent in /stateinfo) so if a user reloads after having submitted their first answer the prompt is preserved
 app.post('/storeprompt1answer', function(req,res,next){
   storedPrompt1Answers.push({
     username: req.body.username,
@@ -377,6 +378,7 @@ app.post('/storeprompt1answer', function(req,res,next){
   });
 })
 
+//Sends all the necessary info for a user to "get back" to the present game state if they reload
 app.get('/stateinfo', function(req,res,next){
   let currentMatchupLocal = null;
   if(matchups.length > 0 && currentMatchup){
@@ -397,7 +399,9 @@ app.get('/stateinfo', function(req,res,next){
   });
 })
 
+//Sends lifetime leaderboard sorted by points/games descending
 app.get('/leaderboard', function(req,res,next){
+  //Creates leaderboard array with every user from the database
   let leaderboardArray = [];
   UserModel.find({})
   .then(doc => {
@@ -408,6 +412,7 @@ app.get('/leaderboard', function(req,res,next){
         games: doc[i].games
       })
     }
+    //Sorts leaderboard array by average points per game descending
     let sortedLeaderboardArray = leaderboardArray.sort(function(a, b){
       return (b.points / b.games) - (a.points / a.games)
     });
