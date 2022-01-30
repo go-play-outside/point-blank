@@ -82,6 +82,10 @@ var prompts = [
 	"'You’re a ___ piece of ___.'",
 ];
 
+//TODO: replace promptsUsed with array unusedPrompts
+//	unusedPrompts starts as a copy of prompts, remove prompts as they are used
+//	get rid of loopBreaker, randomize prompts from unusedPrompts
+//	reset unusedPrompts if all prompts get used
 module.exports = {
 	getRandom: function(promptsUsed){
 		let i = Math.floor(Math.random() * prompts.length);
